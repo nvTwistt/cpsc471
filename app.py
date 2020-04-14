@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 import os
+import random
 
 # Init app
 app = Flask(__name__)
@@ -154,6 +155,119 @@ def deleteCompany(companyName):
     db.session.delete(company)
     db.session.commit()
     return company_schema.jsonify(company)
+
+############################################################# Portfolio Class ####################################################################################################
+class Portfolio(db.Model):
+    portfolioId = db.Column(db.Integer, primary_key=True)
+    value = db.Column(db.Float, nullable=True)
+    accountId = db.Column(db.Integer) #db.ForeignKey('account.accountId'))
+    bonds = db.relationship('Portfolio_Bond', backref='portfolio', lazy=True)
+    canadianEquities = db.relationship('Portfolio_Canadian_Equity', backref='portfolio', lazy=True)
+    usEquities = db.relationship('Portfolio_US_Equity', backref='portfolio', lazy=True)
+
+    def __init__(self, accountId):
+        self.accountId = accountId
+
+# Portfolio Schema
+class PortfolioSchema(marsh.Schema):
+        class Meta:
+            fields = ('portfolioId', 'value', 'accountId')
+
+# Init the Schema
+portfolio_schema = PortfolioSchema()
+portfolios_schema = PortfolioSchema(many=True)
+
+# Create a portfolio
+@app.route('/portfolio', methods=['POST'])
+def addPortfolio():
+    accountId = request.json['accountId']
+    bonds = request.json['bonds']
+    canadianEquities = request.json['canadianEquities']
+    usEquities = request.json['usEquities']
+
+    newPortfolio = Portfolio(accountId)
+    db.session.add(newPortfolio)
+    db.session.commit()
+
+    totalValue = 0.0
+
+    for x in bonds:
+      newBond = Portfolio_Bond(newPortfolio.portfolioId, x)
+      db.session.add(newBond)
+      totalValue+=x
+
+    for x in canadianEquities:
+      newEquity = Portfolio_Canadian_Equity(newPortfolio.portfolioId, x)
+      db.session.add(newEquity)
+      totalValue+=x
+
+    for x in usEquities:
+      newEquity = Portfolio_US_Equity(newPortfolio.portfolioId, x)
+      db.session.add(newEquity)
+      totalValue+=x
+
+    newPortfolio.value = totalValue
+
+    db.session.commit()
+
+    return portfolio_schema.jsonify(newPortfolio)
+
+############################################################# Portfolio Bond Class ####################################################################################################
+class Portfolio_Bond(db.Model):
+    portfolioId = db.Column(db.Integer, db.ForeignKey('portfolio.portfolioId'))
+    bondId = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Float)
+
+    def __init__(self, portfolioId, amount):
+        self.portfolioId = portfolioId
+        self.amount = amount
+
+# Portfolio Schema
+class Portfolio_BondSchema(marsh.Schema):
+        class Meta:
+            fields = ('portfolioId', 'bondId', 'amount')
+
+# Init the Schema
+portfolio_bond_schema = Portfolio_BondSchema()
+portfolios_bond_schema = Portfolio_BondSchema(many=True)
+
+############################################################# Portfolio Canadian Equity Class ####################################################################################################
+class Portfolio_Canadian_Equity(db.Model):
+    portfolioId = db.Column(db.Integer, db.ForeignKey('portfolio.portfolioId'))
+    canadianEquityId = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Float)
+
+    def __init__(self, portfolioId, amount):
+        self.portfolioId = portfolioId
+        self.amount = amount
+
+# Portfolio Schema
+class Portfolio_Canadian_EquitySchema(marsh.Schema):
+        class Meta:
+            fields = ('portfolioId', 'canadianEquityId', 'amount')
+
+# Init the Schema
+portfolio_Canadian_Equity_schema = Portfolio_Canadian_EquitySchema()
+portfolios_Canadian_Equity_schema = Portfolio_Canadian_EquitySchema(many=True)
+
+############################################################# Portfolio US Equity Class ####################################################################################################
+class Portfolio_US_Equity(db.Model):
+    portfolioId = db.Column(db.Integer, db.ForeignKey('portfolio.portfolioId'))
+    usEquityId = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Float)
+
+    def __init__(self, portfolioId, amount):
+        self.portfolioId = portfolioId
+        self.amount = amount
+
+# Portfolio Schema
+class Portfolio_US_EquitySchema(marsh.Schema):
+        class Meta:
+            fields = ('portfolioId', 'usEquityId', 'amount')
+
+# Init the Schema
+portfolio_US_Equity_schema = Portfolio_US_EquitySchema()
+portfolios_US_Equity_schema = Portfolio_US_EquitySchema(many=True)
 
 # Run server
 if __name__ == '__main__':
