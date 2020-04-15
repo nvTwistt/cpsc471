@@ -612,8 +612,7 @@ def getAllAdvisors():
 #retrueve the list of investors an advisor is advertising
 @app.route('/advisors/<advisorID>/investors', methods = ['GET'])
 def getAdvisedInvestors(advisorID):
-  advisor = Advisor.query.get(advisorID)
-  
+  advisor = Advisor.query.get(advisor)
 
 
   
