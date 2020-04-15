@@ -52,6 +52,7 @@ class Investor(db.Model):
     accountId = db.Column(db.Integer, db.ForeignKey('account.accountId'))
     investment = db.relationship('Investment', backref='investor', lazy=True)
     portfolio = db.relationship('Portfolio', backref='investor', lazy=True)
+    survey = db.relationship('Survey', backref='investor', lazy=True)
 
     def __init__(self, name, dob, advisorId, accountId):
         self.name = name
@@ -100,30 +101,22 @@ def leastBusyAdvisor():
 
 
 # Get single Investor
-
 @app.route('/investor/<investorId>', methods=['GET'])
-
 def getInvestor(investorId):
     investor = Investor.query.get(investorId)
     return investor_schema.jsonify(investor)
 
 
-
 # Get All Investors
-
 @app.route('/investor', methods=['GET'])
-
 def getAllInvestors():
     allInvestors = Investor.query.all()
     result = investors_schema.dump(allInvestors)
     return jsonify(result)
 
 
-
 # Update an Investor
-
 @app.route('/investor/<investorId>', methods=['PUT'])
-
 def updateInvestor(investorId):
     investor = Investor.query.get(investorId)
 
@@ -147,8 +140,58 @@ def deleteInvestor(investorId):
 
     return investor_schema.jsonify(investor)
 
+############################################################# Survey CLASS ####################################################################################################
+class Survey(db.Model):
+    investorId = db.Column(db.Integer, db.ForeignKey('investor.investorId'), primary_key=True)
+    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorId'))
+    riskTolerance = db.Column(db.String(10))
+    monthlySaving = db.Column(db.Float)
+    cashBurn = db.Column(db.Float)
+    debt = db.Column(db.Float)
+    annualIncome = db.Column(db.Float)
+    preferenceOfIncome = db.Column(db.String(10))
 
-############################################################# Company CLASS/ENTITY ####################################################################################################
+    def __init__(self, investorId, advisorId, rt, ms, cb, debt, ai, poi):
+        self.investorId = investorId
+        self.advisorId = advisorId
+        self.riskTolerance = rt
+        self.monthlySaving = ms
+        self.cashBurn = cb
+        self.debt = debt
+        self.annualIncome = ai
+        self.preferenceOfIncome = poi
+
+class SurveySchema(marsh.Schema):
+    class Meta:
+        fields = ('investorId', 'advisorId', 'riskTolerance', 'monthlySaving', 'cashBurn', 'debt', 'annualIncome', 'preferenceOfIncome')
+
+survey_schema = SurveySchema()
+surveys_schema = SurveySchema(many=True)
+
+@app.route('/investor/<investorId>/survey', methods=['POST'])
+def addSurvey(investorId):
+    rt = request.json['riskTolerance']
+    ms = request.json['monthlySavings']
+    cb = request.json['cashBurn']
+    debt = request.json['debt']
+    ai = request.json['annualIncome']
+    poi = request.json['preferenceOfIncome']
+
+    investor = Investor.query.get(investorId)
+
+    survey = Survey(investor.investorId, investor.advisorId, rt, ms, cb, debt, ai, poi)
+
+    db.session.add(survey)
+    db.session.commit()
+
+    return survey_schema.jsonify(survey)
+
+@app.route('/investor/<investorId>/survey', methods=['GET'])
+def getSurvey(investorId):
+    survey = Survey.query.get(investorId)
+    return survey_schema.jsonify(survey)
+
+############################################################# Company CLASS ####################################################################################################
 class Account(db.Model):
     accountId = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True)
@@ -314,8 +357,6 @@ class Portfolio(db.Model):
 
     def __init__(self, investorId):
         self.investorId = investorId
-
-
 
 # Portfolio Schema
 class PortfolioSchema(marsh.Schema):
