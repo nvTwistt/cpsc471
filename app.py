@@ -1,8 +1,7 @@
 from flask import Flask, request, jsonify
-
 from flask_sqlalchemy import SQLAlchemy
-
 from flask_marshmallow import Marshmallow
+from sqlalchemy import func
 
 import os
 
@@ -49,59 +48,55 @@ class Investor(db.Model):
     investorId = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(30))
     dateOfBirth = db.Column(db.String(40))
+    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorId'))
+    accountId = db.Column(db.Integer, db.ForeignKey('account.accountId'))
     investment = db.relationship('Investment', backref='investor', lazy=True)
+    portfolio = db.relationship('Portfolio', backref='investor', lazy=True)
 
-
-    def __init__(self, name, dob):
-
+    def __init__(self, name, dob, advisorId, accountId):
         self.name = name
-
         self.dateOfBirth = dob
-
-
+        self.advisorId = advisorId
+        self.accountId = accountId
 
 # Investor Schema
-
 class InvestorSchema(marsh.Schema):
-
     class Meta:
-
-        fields = ('investorId', 'name', 'dateOfBirth')
-
+        fields = ('investorId', 'name', 'dateOfBirth', 'advisorId', 'accountId')
 
 
 # Init the schema
-
 investor_schema = InvestorSchema()    # dealing with a single investor
-
 investors_schema = InvestorSchema(many=True)  # dealing with many investors
 
 
-
 # Create an investor
-
 @app.route('/investor', methods=['POST'])
-
 def addInvestor():
-
     name = request.json['name']
-
     dateOfBirth = request.json['dateOfBirth']
+    username = request.json['username']
+    password = request.json['password']
 
-
-
-    newInvestor = Investor(name, dateOfBirth)
-
-
-
-    db.session.add(newInvestor)
-
+    newAccount = Account(username, password, False)
+    db.session.add(newAccount)
     db.session.commit()
 
+    newInvestor = Investor(name, dateOfBirth, leastBusyAdvisor().advisorId, newAccount.accountId)
 
+    db.session.add(newInvestor)
+    db.session.commit()
 
     return investor_schema.jsonify(newInvestor)
 
+#Stored procedure that finds the advisor with the least investors assigned to them
+def leastBusyAdvisor():
+    advisorId = Advisor.query.\
+            with_entities(Advisor.advisorId).\
+            outerjoin(Investor).\
+            group_by(Advisor.advisorId).\
+            order_by(func.count(Investor.investorId)).first()
+    return advisorId
 
 
 # Get single Investor
@@ -109,9 +104,7 @@ def addInvestor():
 @app.route('/investor/<investorId>', methods=['GET'])
 
 def getInvestor(investorId):
-
     investor = Investor.query.get(investorId)
-
     return investor_schema.jsonify(investor)
 
 
@@ -121,11 +114,8 @@ def getInvestor(investorId):
 @app.route('/investor', methods=['GET'])
 
 def getAllInvestors():
-
     allInvestors = Investor.query.all()
-
     result = investors_schema.dump(allInvestors)
-
     return jsonify(result)
 
 
@@ -135,48 +125,51 @@ def getAllInvestors():
 @app.route('/investor/<investorId>', methods=['PUT'])
 
 def updateInvestor(investorId):
-
     investor = Investor.query.get(investorId)
 
-
-
     name = request.json['name']
-
     dateOfBirth = request.json['dateOfBirth']
 
-
-
     investor.name = name
-
     investor.dateOfBirth = dateOfBirth
-
-
 
     db.session.commit()
 
-
-
     return investor_schema.jsonify(investor)
 
-
-
 # Delete Investor
-
 @app.route('/investor/<investorId>', methods=['DELETE'])
-
 def deleteInvestor(investorId):
-
     investor = Investor.query.get(investorId)
 
     db.session.delete(investor)
-
     db.session.commit()
 
     return investor_schema.jsonify(investor)
 
 
+############################################################# Company CLASS/ENTITY ####################################################################################################
+class Account(db.Model):
+    accountId = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True)
+    password = db.Column(db.String(50))
+    isAdvisor = db.Column(db.Boolean)
+    userInv = db.relationship('Investor', backref='account', lazy=True)
+    userAdv = db.relationship('Advisor', backref='account', lazy=True)
 
-############################################################# REPORT CLASS/ENTITY ####################################################################################################
+    def __init__(self, username, password, isAdvisor):
+        self.username = username
+        self.password = password
+        self.isAdvisor = isAdvisor
+    
+    class AccountSchema(marsh.Schema):
+        class Meta:
+            fields = ('accountId', 'username', 'isAdvisor')
+    
+    account_schema = AccountSchema()
+    accounts_schema = AccountSchema(many=True)
+
+############################################################# Company CLASS/ENTITY ####################################################################################################
 
 class Company(db.Model):
 
@@ -309,27 +302,25 @@ def deleteCompany(companyName):
 
 
 ############################################################# Portfolio Class ####################################################################################################
-
 class Portfolio(db.Model):
 
     portfolioId = db.Column(db.Integer, primary_key=True)
-
     value = db.Column(db.Float, nullable=True)
+    investorId = db.Column(db.Integer, db.ForeignKey('investor.investorId'))
 
-    accountId = db.Column(db.Integer) #db.ForeignKey('account.accountId'))
     bonds = db.relationship('Portfolio_Bond', backref='portfolio', lazy=True)
     canadianEquities = db.relationship('Portfolio_Canadian_Equity', backref='portfolio', lazy=True)
     usEquities = db.relationship('Portfolio_US_Equity', backref='portfolio', lazy=True)
 
-    def __init__(self, accountId):
-        self.accountId = accountId
+    def __init__(self, investorId):
+        self.investorId = investorId
 
 
 
 # Portfolio Schema
 class PortfolioSchema(marsh.Schema):
         class Meta:
-            fields = ('portfolioId', 'value', 'accountId')
+            fields = ('portfolioId', 'value', 'investorId')
 
 
 
@@ -342,13 +333,13 @@ portfolios_schema = PortfolioSchema(many=True)
 
 @app.route('/portfolio', methods=['POST'])
 def addPortfolio():
-    accountId = request.json['accountId']
+    investorId = request.json['investorId']
     bonds = request.json['bonds']
     canadianEquities = request.json['canadianEquities']
     usEquities = request.json['usEquities']
 
 
-    newPortfolio = Portfolio(accountId)
+    newPortfolio = Portfolio(investorId)
     db.session.add(newPortfolio)
     db.session.commit()
 
@@ -381,9 +372,9 @@ def getPortfolio(portfolioId):
     portfolio = Portfolio.query.get(portfolioId)
     return portfolio_schema.jsonify(portfolio)
 
-@app.route('/portfolio/<accountId>', methods=['GET'])
-def getAccountPortfolios(accountId):
-    portfolios = Portfolio.query.filter_by(accountId = accountId).all()
+@app.route('/portfolio/<investorId>', methods=['GET'])
+def getAccountPortfolios(investorId):
+    portfolios = Portfolio.query.filter_by(investorId = investorId).all()
     return portfolios_schema.jsonify(portfolios)
 
 @app.route('/portfolio/<portfolioId>', methods = ['DELETE'])
@@ -409,8 +400,6 @@ class Portfolio_Bond(db.Model):
 class Portfolio_BondSchema(marsh.Schema):
         class Meta:
             fields = ('portfolioId', 'bondId', 'amount')
-
-
 
 # Init the Schema
 portfolio_bond_schema = Portfolio_BondSchema()
@@ -455,20 +444,16 @@ class Portfolio_US_EquitySchema(marsh.Schema):
         class Meta:
             fields = ('portfolioId', 'usEquityId', 'amount')
 
-
-
 # Init the Schema
 portfolio_US_Equity_schema = Portfolio_US_EquitySchema()
 portfolios_US_Equity_schema = Portfolio_US_EquitySchema(many=True)
 
 
 ############################################################# Investment Class ####################################################################################################
-
 class Investment(db.Model):
 
     referenceId = db.Column(db.Integer, primary_key=True)
     investorId = db.Column(db.Integer, db.ForeignKey('investor.investorId'))
-
     holding = db.Column(db.String(50))
     marketValue = db.Column(db.Float)
 
@@ -514,7 +499,7 @@ def deleteInvestment(referenceId):
 class Investment_Option(db.Model):
 
     referenceId = db.Column(db.Integer, primary_key=True)
-    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorID'))
+    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorId'))
     amount = db.Column(db.Integer)
     invType = db.Column(db.String(10))
     companyName = db.Column(db.String(50), db.ForeignKey('company.companyName'))
@@ -555,22 +540,21 @@ def getInvestmentOptions(advisorId):
 ####################################################### ADVISOR CLASS ##############################################################################################
 class Advisor(db.Model):
 
-    advisorID = db.Column(db.Integer, primary_key=True)
+    advisorId = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
-    username = db.Column(db.String(100), unique = True)
-    password = db.Column(db.String(200))
+    accountId = db.Column(db.Integer, db.ForeignKey('account.accountId'))
     qualifications = db.relationship('Advisor_Qualification', backref='advisor', lazy=True)
     investmentOptions = db.relationship('Investment_Option', backref='advisor', lazy=True)
+    clients = db.relationship('Investor', backref='advisor', lazy=True)
 
-    def __init__(self, name, username, password):
+    def __init__(self, name, accountId):
         self.name = name
-        self.username = username
-        self.password = password
+        self.accountId = accountId
 
 # Advisor Schema
 class AdvisorSchema(marsh.Schema):
         class Meta:
-            fields = ('advisorID', 'name', 'username', 'password')
+            fields = ('advisorId', 'name', 'accountId')
 
 # Init the Schema
 
@@ -585,25 +569,29 @@ def addAdvisor():
   username = request.json['username']
   password = request.json['password']
   qualifications = request.json['qualifications']
-  
-  newAdvisor = Advisor(name, username, password)
+
+  newAccount = Account(username, password, True)
+  db.session.add(newAccount)
+  db.session.commit()
+
+  newAdvisor = Advisor(name, newAccount.accountId)
   db.session.add(newAdvisor)
   db.session.commit()
 
   for x in qualifications:
-      newQualification = Advisor_Qualification(newAdvisor.advisorID, x)
+      newQualification = Advisor_Qualification(newAdvisor.advisorId, x)
       db.session.add(newQualification)
 
   db.session.commit()
 
   return advisor_schema.jsonify(newAdvisor)
 
-#get a single advisor via advisorID
+#get a single advisor via advisorId
 #GET /advisor/{AdvisorID}
 
-@app.route('/advisor/<advisorID>', methods = ['GET'])
-def getAdvisor(advisorID):
-  advisor = Advisor.query.get(advisorID)
+@app.route('/advisor/<advisorId>', methods = ['GET'])
+def getAdvisor(advisorId):
+  advisor = Advisor.query.get(advisorId)
   return advisor_schema.jsonify(advisor)
 
 #get all advisors
@@ -613,19 +601,18 @@ def getAllAdvisors():
   result = advisors_schema.dump(allAdvisors)
   return jsonify(result)
 
-# GET/advisor/{advisorID}/investors
+# GET/advisor/{advisorId}/investors
 #retrueve the list of investors an advisor is advertising
-@app.route('/advisors/<advisorID>/investors', methods = ['GET'])
-def getAdvisedInvestors(advisorID):
-  #advisor = Advisor.query.get(advisorID)
-  AdvisedInvestors = Investor.query.filter_by(advisorID = (Advisor.query.get(advisorID))).all()
+@app.route('/advisors/<advisorId>/investors', methods = ['GET'])
+def getAdvisedInvestors(advisorId):
+  AdvisedInvestors = Investor.query.filter_by(advisorId = (Advisor.query.get(advisorId))).all()
   result = investors_schema.dump(AdvisedInvestors)
   return jsonify(result)
 
 #update advisors 
-# @app.route('/advisor/<advisorID>', methods = ['PUT'])
-# def updateAdvisor(advisorID):
-#   advisor = Advisor.query.get(advisorID)
+# @app.route('/advisor/<advisorId>', methods = ['PUT'])
+# def updateAdvisor(advisorId):
+#   advisor = Advisor.query.get(advisorId)
 #   name = request.json['name']
 #   username = request.json['username']
 #   password = request.json['password']
@@ -642,16 +629,16 @@ def getAdvisedInvestors(advisorID):
 
 
 #delete advisor
-@app.route('/advisor/<advisorID>', methods = ['DELETE'])
-def deleteAdvisor(advisorID):
-  advisor = Advisor.query.get(advisorID)
+@app.route('/advisor/<advisorId>', methods = ['DELETE'])
+def deleteAdvisor(advisorId):
+  advisor = Advisor.query.get(advisorId)
   db.session.delete(advisor)
   db.session.commit()
   return advisor_schema.jsonify(advisor)    
 
 ####################################################### ADVISOR Qualification CLASS ##############################################################################################
 class Advisor_Qualification(db.Model):
-    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorID'), primary_key=True)
+    advisorId = db.Column(db.Integer, db.ForeignKey('advisor.advisorId'), primary_key=True)
     qualification = db.Column(db.String(50), primary_key=True)
 
     def __init__(self, advisorId, qual):
