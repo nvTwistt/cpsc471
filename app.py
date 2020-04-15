@@ -494,6 +494,23 @@ def getInvestment(referenceId):
     investment = Investment.query.get(referenceId)
     return investment_schema.jsonify(investment)
 
+@app.route('/investment/invest/<referenceId>', methods=['PUT'])
+def investIn(referenceId):
+    investorId = request.json['investorId']
+    investmentOption = Investment_Option.query.get(referenceId)
+    newInvestment = Investment(referenceId, investorId, investmentOption.company, 0.0)
+    db.session.add(newInvestment)
+    db.session.delete(investmentOption)
+    db.session.commit()
+    return investment_schema.jsonify(newInvestment)
+
+@app.route('/investment/<referenceId>', methods=['DELETE'])
+def deleteInvestment(referenceId):
+    investment = Investment.query.get(referenceId)
+    db.session.delete(investment)
+    db.session.commit()
+    return investment_schema.jsonify(investment)
+
 class Investment_Option(db.Model):
 
     referenceId = db.Column(db.Integer, primary_key=True)
@@ -518,7 +535,7 @@ class Investment_OptionSchema(marsh.Schema):
 investment_option_schema = Investment_OptionSchema()
 investment_options_schema = Investment_OptionSchema(many=True)
 
-@app.route('/investment', methods=['POST'])
+@app.route('/investment/options', methods=['POST'])
 def addInvestment():
   advisorId = request.json['advisorId']
   amount = request.json['amount']
