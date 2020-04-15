@@ -612,7 +612,39 @@ def getAllAdvisors():
 #retrueve the list of investors an advisor is advertising
 @app.route('/advisors/<advisorID>/investors', methods = ['GET'])
 def getAdvisedInvestors(advisorID):
-  advisor = Advisor.query.get(advisor)
+  #advisor = Advisor.query.get(advisorID)
+  AdvisedInvestors = Investor.query.filter_by(advisorID = (Advisor.query.get(advisorID))).all()
+  result = investors_schema.dump(AdvisedInvestors)
+  return jsonify(result)
+
+#update advisors 
+@app.route('/advisor/<advisorID>', methods = ['PUT'])
+def updateAdvisor(advisorID):
+  advisor = Advisor.query.get(advisorID)
+  name = request.json['name']
+  username = request.json['username']
+  password = request.json['password']
+  qualifications = request.json['qualifications']
+
+  advisor.name = name
+  advisor.username = username
+  advisor.password = password
+  advisor.qualifications = qualifications
+
+  db.session.commit()
+
+  return advisor_schema.jsonify(advisor)
+
+
+#delete advisor
+@app.route('/advisor/<advisorID>', methods = ['Delete'])
+def deleteAdvisor(advisorID):
+  advisor = Advisor.query.get(advisorID)
+  db.session.delete(advisor)
+  db.session.commit()
+  return advisor_schema.jsonify(advisor)    
+
+
 
 
   
