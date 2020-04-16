@@ -86,15 +86,6 @@ def getInvestor(investorId):
     investor = Investor.query.get(investorId)
     return investor_schema.jsonify(investor)
 
-
-# Get All Investors
-@app.route('/investor', methods=['GET'])
-def getAllInvestors():
-    allInvestors = Investor.query.all()
-    result = investors_schema.dump(allInvestors)
-    return jsonify(result)
-
-
 # Update an Investor
 @app.route('/investor/<investorId>', methods=['PUT'])
 def updateInvestor(investorId):
@@ -102,9 +93,13 @@ def updateInvestor(investorId):
 
     name = request.json['name']
     dateOfBirth = request.json['dateOfBirth']
+    password = request.json['password']
+
+    account = Account.query.get(investor.accountId)
 
     investor.name = name
     investor.dateOfBirth = dateOfBirth
+    account.password = password
 
     db.session.commit()
 
@@ -198,6 +193,7 @@ class Company(db.Model):
     industry = db.Column(db.String(30))
     sharesOutstanding = db.Column(db.Integer)
     marketCap = db.Column(db.Integer)
+    offeredStock = db.relationship('Stock', backref='company', lazy=True)
 
     def __init__(self, name, industry, sot, mc):
         self.companyName = name
@@ -273,7 +269,7 @@ class Stock(db.Model):
     ticker = db.Column(db.String(8), primary_key=True)
     currentPrice = db.Column(db.Float(2))
     targetPrice = db.Column(db.Float(2))
-    companyName = db.Column(db.String(50))
+    companyName = db.Column(db.String(50), db.ForeignKey('company.companyName'))
 
     def __init__(self, tick, cPrice, tPrice, name):
         self.ticker = tick
@@ -361,9 +357,14 @@ class NewsSchema(marsh.Schema):
     class Meta:
         fields = ('headline', 'postedDate', 'articleBody')
 
+class HeadlineSchema(marsh.Schema):
+    class Meta:
+        fields = ('headline',)
+
 # Init the Schema
 news_schema = NewsSchema()
 multiple_news_schema = NewsSchema(many=True)
+headlines_schema = HeadlineSchema(many=True)
 
 # Adding a news item
 @app.route('/news', methods=['POST'])
@@ -382,6 +383,18 @@ def addNewsItem():
 def getNewsItem(headline):
     newsItem = News.query.get(headline)
     return news_schema.jsonify(newsItem)
+
+@app.route('/news/c:<companyName>', methods=['GET'])
+def getByCompanyName(companyName):
+    headlines = News.query.with_entities(News.headline).filter(News.headline.ilike('%' + companyName + '%'))
+    result = headlines_schema.jsonify(headlines)
+    return jsonify(articles=result.get_json())
+
+@app.route('/news/t:<ticker>', methods=['GET'])
+def getByTicker(ticker):
+    headlines = News.query.with_entities(News.headline).filter(News.headline.like('%' + ticker + '%'))
+    result = headlines_schema.jsonify(headlines)
+    return jsonify(articles=result.get_json())
 
 # deleting a News item
 @app.route('/news/<headline>', methods=['DELETE'])
@@ -465,7 +478,8 @@ def getPortfolio(portfolioId):
 @app.route('/portfolio/<investorId>', methods=['GET'])
 def getAccountPortfolios(investorId):
     portfolios = Portfolio.query.filter_by(investorId = investorId).all()
-    return portfolios_schema.jsonify(portfolios)
+    result = portfolios_schema.jsonify(portfolios)
+    return jsonify(portfolios=result.get_json())
 
 @app.route('/portfolio/<portfolioId>', methods = ['DELETE'])
 def deletePortfolio(portfolioId):
@@ -546,6 +560,7 @@ class Investment(db.Model):
     investorId = db.Column(db.Integer, db.ForeignKey('investor.investorId'))
     holding = db.Column(db.String(50))
     marketValue = db.Column(db.Float)
+    report = db.relationship('Report', backref='investment', lazy=True)
 
     def __init__(self, referenceId, investorId, holding, marketValue):
         self.referenceId = referenceId
@@ -573,11 +588,22 @@ def getInvestment(referenceId):
 def investIn(referenceId):
     investorId = request.json['investorId']
     investmentOption = Investment_Option.query.get(referenceId)
-    newInvestment = Investment(referenceId, investorId, investmentOption.company, 0.0)
+    newInvestment = Investment(referenceId, investorId, investmentOption.companyName, calculateMarketValue(investmentOption))
     db.session.add(newInvestment)
     db.session.delete(investmentOption)
     db.session.commit()
     return investment_schema.jsonify(newInvestment)
+
+def calculateMarketValue(option):
+    individualValue = Investment_Option.query.\
+            filter_by(referenceId = option.referenceId).\
+            join(Company).\
+            join(Stock).\
+            with_entities(Stock.currentPrice).\
+            first()
+    
+    return individualValue.currentPrice * option.amount
+
 
 @app.route('/investment/<referenceId>', methods=['DELETE'])
 def deleteInvestment(referenceId):
@@ -603,7 +629,7 @@ class Investment_Option(db.Model):
 # Portfolio Schema
 class Investment_OptionSchema(marsh.Schema):
         class Meta:
-            fields = ('referenceId', 'advisorId', 'amount', 'company', 'invType')
+            fields = ('referenceId', 'advisorId', 'amount', 'companyName', 'invType')
 
 
 # Init the Schema
@@ -612,21 +638,86 @@ investment_options_schema = Investment_OptionSchema(many=True)
 
 @app.route('/investment/options', methods=['POST'])
 def addInvestment():
-  advisorId = request.json['advisorId']
-  amount = request.json['amount']
-  company = request.json['company']
-  invType = request.json['invType']
-  
-  newInvestmentOption = Investment_Option(advisorId, amount, invType, company)
-  db.session.add(newInvestmentOption)
-  db.session.commit()
-  return investment_option_schema.jsonify(newInvestmentOption)
+    advisorId = request.json['advisorId']
+    amount = request.json['amount']
+    company = request.json['company']
+    invType = request.json['invType']
+    
+    newInvestmentOption = Investment_Option(advisorId, amount, invType, company)
+    db.session.add(newInvestmentOption)
+    db.session.commit()
+    return investment_option_schema.jsonify(newInvestmentOption)
 
 @app.route('/investment/options/<advisorId>', methods=['GET'])
 def getInvestmentOptions(advisorId):
     options = Investment_Option.query.filter_by(advisorId = advisorId).all()
     return investment_options_schema.jsonify(options)
 
+####################################################### Report CLASS ##############################################################################################
+class Report(db.Model):
+    referenceId = db.Column(db.Integer, db.ForeignKey('investment.referenceId'), primary_key=True)
+    weeklyPerformance = db.Column(db.Float, nullable=True)
+    monthlyPerformance = db.Column(db.Float, nullable=True)
+    quarterlyPerformance = db.Column(db.Float, nullable=True)
+    annualPerformance = db.Column(db.Float, nullable=True)
+    fiveYearPerformance = db.Column(db.Float, nullable=True)
+    sinceInceptionPerformance = db.Column(db.Float, nullable=True)
+
+    def __init__(self, referenceId, wp, mp, qp, ap, fyp, sip):
+        self.referenceId = referenceId
+        self.weeklyPerformance = wp
+        self.monthlyPerformance = mp
+        self.quarterlyPerformance = qp
+        self.annualPerformance = ap
+        self.fiveYearPerformance = fyp
+        self.sinceInceptionPerformance = sip
+
+class Report_Schema(marsh.Schema):
+    class Meta:
+        fields = ('referenceId', 'weeklyPerformance', 'monthlyPerformance', 'quarterlyPerformance', 'annualPerformance', 'fiveYearPerformance', 'sinceInceptionPerformance')
+
+report_schema = Report_Schema()
+reports_schema = Report_Schema(many=True)
+
+@app.route('/report', methods=['POST'])
+def addReport():
+    referenceId = request.json['referenceId']
+    wp = request.json['weekly']
+    mp = request.json['monthly']
+    qp = request.json['quarterly']
+    ap = request.json['annual']
+    fyp = request.json['fiveYear']
+    sip = request.json['sinceInception']
+
+    newReport = Report(referenceId, wp, mp, qp, ap, fyp, sip)
+    db.session.add(newReport)
+    db.session.commit()
+
+    return report_schema.jsonify(newReport)
+
+@app.route('/report/<referenceId>', methods=['GET'])
+def getReport(referenceId):
+    report = Report.query.get(referenceId)
+    return report_schema.jsonify(report)
+
+@app.route('/report/<referenceId>', methods=['PUT'])
+def updateReport(referenceId):
+    report = Report.query.get(referenceId)
+    wp = request.json['weekly']
+    mp = request.json['monthly']
+    ap = request.json['annual']
+    fyp = request.json['fiveYear']
+    sip = request.json['sinceInception']
+
+    report.weeklyPerformance = wp
+    report.monthlyPerformance = mp
+    report.annualPerformance = ap
+    report.fiveYearPerformance = fyp
+    report.sinceInceptionPerformance = sip
+    
+    db.session.commit()
+
+    return report_schema.jsonify(report)
 ####################################################### ADVISOR CLASS ##############################################################################################
 class Advisor(db.Model):
 
@@ -678,15 +769,12 @@ def addAdvisor():
   return advisor_schema.jsonify(newAdvisor)
 
 #get a single advisor via advisorId
-#GET /advisor/{AdvisorID}
-
 @app.route('/advisor/<advisorId>', methods = ['GET'])
 def getAdvisor(advisorId):
   advisor = Advisor.query.get(advisorId)
   return advisor_schema.jsonify(advisor)
 
 #get qualifications of an advisor
-#GET /advisor/{AdvisorID}
 @app.route('/advisor/<advisorId>/qualifications', methods = ['GET'])
 def getAdvisorQualifications(advisorId):
   quals = Advisor_Qualification.query.filter_by(advisorId = advisorId).all()
@@ -697,34 +785,37 @@ def getAdvisorQualifications(advisorId):
 @app.route('/advisor', methods = ['GET'])
 def getAllAdvisors():
   allAdvisors = Advisor.query.all()
-  result = advisors_schema.dump(allAdvisors)
-  return jsonify(result)
+  result = advisors_schema.jsonify(allAdvisors)
+  return jsonify(advisors=result.get_json())
 
 # GET/advisor/{advisorId}/investors
 #retrueve the list of investors an advisor is advertising
 @app.route('/advisors/<advisorId>/investors', methods = ['GET'])
 def getAdvisedInvestors(advisorId):
   AdvisedInvestors = Investor.query.filter_by(advisorId = (Advisor.query.get(advisorId))).all()
-  result = investors_schema.dump(AdvisedInvestors)
-  return jsonify(result)
+  result = investors_schema.jsonify(AdvisedInvestors)
+  return jsonify(investors=result.get_json())
 
 #update advisors 
-# @app.route('/advisor/<advisorId>', methods = ['PUT'])
-# def updateAdvisor(advisorId):
-#   advisor = Advisor.query.get(advisorId)
-#   name = request.json['name']
-#   username = request.json['username']
-#   password = request.json['password']
-#   qualifications = request.json['qualifications']
+@app.route('/advisor/<advisorId>', methods = ['PUT'])
+def updateAdvisor(advisorId):
+  advisor = Advisor.query.get(advisorId)
+  name = request.json['name']
+  password = request.json['password']
+  qualifications = request.json['qualifications']
 
-#   advisor.name = name
-#   advisor.username = username
-#   advisor.password = password
-#   advisor.qualifications = qualifications
+  account = Account.query.get(advisor.accountId)
+  
+  advisor.name = name
+  account.password = password
 
-#   db.session.commit()
+  for x in qualifications:
+      newQualification = Advisor_Qualification(advisor.advisorId, x)
+      db.session.add(newQualification)
 
-#   return advisor_schema.jsonify(advisor)
+  db.session.commit()
+
+  return advisor_schema.jsonify(advisor)
 
 
 #delete advisor
