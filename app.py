@@ -2,44 +2,24 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from sqlalchemy import func
-
 import os
-
 import random
 
-
-
 # Init app
-
 app = Flask(__name__)
 
-
-
 # base directory
-
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-
-
 # Database
-
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'db.sqlite')
-
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-
-
 # Init the Database
-
 db = SQLAlchemy(app)
 
-
-
 # Init Marshmallow
-
 marsh = Marshmallow(app)
-
-
 
 ################################################################### INVESTOR CLASS/ENTITY #####################################################################################
 
@@ -191,7 +171,7 @@ def getSurvey(investorId):
     survey = Survey.query.get(investorId)
     return survey_schema.jsonify(survey)
 
-############################################################# Company CLASS ####################################################################################################
+############################################################# Account CLASS ####################################################################################################
 class Account(db.Model):
     accountId = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True)
@@ -213,134 +193,203 @@ class Account(db.Model):
     accounts_schema = AccountSchema(many=True)
 
 ############################################################# Company CLASS/ENTITY ####################################################################################################
-
 class Company(db.Model):
-
     companyName = db.Column(db.String(50), primary_key=True)
     industry = db.Column(db.String(30))
     sharesOutstanding = db.Column(db.Integer)
     marketCap = db.Column(db.Integer)
-    indicateToInvest = db.relationship('Investment_Option', backref='company', lazy=True)
 
     def __init__(self, name, industry, sot, mc):
-
         self.companyName = name
-
         self.industry = industry
-
         self.sharesOutstanding = sot
-
         self.marketCap = mc
 
-
-
 # Company Schema
-
 class CompanySchema(marsh.Schema):
-
         class Meta:
-
-            fields = ('companyName', 'industry', 'sharesOustanding', 'marketCap')
-
-
+            fields = ('companyName', 'industry', 'sharesOutstanding', 'marketCap')
 
 # Init the Schema
-
 company_schema = CompanySchema()
-
 companies_schema = CompanySchema(many=True)
 
-
-
 # Add a Company to the database
-
 @app.route('/company', methods=['POST'])
-
 def addCompany():
-
     companyName = request.json['companyName']
-
     industry = request.json['industry']
-
-    sharesOustanding = request.json['sharesOutstanding']
-
+    sharesOutstanding = request.json['sharesOutstanding']
     marketCap = request.json['marketCap']
 
-
-
-    newCompany = Company(companyName, industry, sharesOustanding, marketCap)
-
-
+    newCompany = Company(companyName, industry, sharesOutstanding, marketCap)
 
     db.session.add(newCompany)
-
     db.session.commit()
 
     return company_schema.jsonify(newCompany)
 
-
-
 # Get a single Company
-
 @app.route('/company/<companyName>', methods=['GET'])
-
 def getCompany(companyName):
-
     company = Company.query.get(companyName)
-
     return company_schema.jsonify(company)
 
-
+# Get all the companies in the database
+@app.route('/company', methods=['GET'])
+def getAllCompanies():
+    allCompanies = Company.query.all()
+    result = companies_schema.dump(allCompanies)
+    return jsonify(allCompanies)
 
 # Update a company
-
 @app.route('/company/<companyName>', methods=['PUT'])
-
 def updateCompany(companyName):
-
     company = Company.query.get(companyName)
-
-
 
     companyName = request.json['companyName']
-
     industry = request.json['industry']
-
     sharesOustanding = request.json['sharesOutstanding']
-
     marketCap = request.json['marketCap']
 
-
-
     company.companyName = companyName
-
     company.industry = industry
-
     company.sharesOustanding = sharesOustanding
-
     company.marketCap = marketCap
 
-
-
     db.session.commit()
-
     return company_schema.jsonify(company)
-
-
 
 # Delete company from the database
-
 @app.route('/company/<companyName>', methods=['DELETE'])
-
 def deleteCompany(companyName):
-
     company = Company.query.get(companyName)
-
     db.session.delete(company)
-
     db.session.commit()
-
     return company_schema.jsonify(company)
+
+############################################################# Stock Class ########################################################################################################
+class Stock(db.Model):
+    ticker = db.Column(db.String(8), primary_key=True)
+    currentPrice = db.Column(db.Float(2))
+    targetPrice = db.Column(db.Float(2))
+    companyName = db.Column(db.String(50))
+
+    def __init__(self, tick, cPrice, tPrice, name):
+        self.ticker = tick
+        self.currentPrice = cPrice
+        self.targetPrice = tPrice
+        self.companyName = name
+
+
+# Stock Schema
+class StockSchema(marsh.Schema):
+    class Meta:
+        fields = ('ticker', 'currentPrice', 'targetPrice', 'companyName')
+
+# Init the Schema, only deal with 1 individual stock per company
+stock_schema = StockSchema()
+
+# adding the stock to a company
+@app.route('/company/<companyName>/stock', methods=['POST'])
+def addStockToCompany(companyName):
+    company = Company.query.get(companyName)
+    ticker = request.json['ticker']
+    currentPrice = request.json['currentPrice']
+    targetPrice = request.json['targetPrice']
+    companyName = companyName
+
+    newStock = Stock(ticker, currentPrice, targetPrice, companyName)
+
+    db.session.add(newStock)
+    db.session.commit()
+    return stock_schema.jsonify(newStock)
+
+# getting the stock of a company
+@app.route('/company/<companyName>/stock/<ticker>', methods=['GET'])
+def getCompanyStock(companyName, ticker):
+    stock = Stock.query.get(ticker)
+    if stock.companyName != companyName:
+        return stock_schema.jsonify(False)    # return an empty json since the company names must match, so no record on our database for unmatching company names
+    else:
+        return stock_schema.jsonify(stock)
+
+# Updating the stock of a company
+@app.route('/company/<companyName>/stock/<ticker>', methods=['PUT'])
+def updateCompanyStock(companyName, ticker):
+    stock = Stock.query.get(ticker)
+    if companyName == stock.companyName:
+        ticker = request.json['ticker']
+        currentPrice = request.json['currentPrice']
+        targetPrice = request.json['targetPrice']
+
+        stock.ticker = ticker
+        stock.currentPrice = currentPrice
+        stock.targetPrice = targetPrice
+
+        db.session.commit()
+        return stock_schema.jsonify(stock)
+    
+    else:
+        return stock_schema.jsonify(False)    # return an empty json since the company names must match, so no record on our database for unmatching company names
+
+# Deleting the stock of a company
+@app.route('/company/<companyName>/stock/<ticker>', methods=['DELETE'])
+def deleteCompanyStock(companyName, ticker):
+    stock = Stock.query.get(ticker)
+    if companyName == stock.companyName:
+        db.session.delete(stock)
+        db.session.commit()
+        return stock_schema.jsonify(stock)
+    else:
+        return stock_schema.jsonify(False)    # return an empty json since the company names must match, so no record on our database for unmatching company names
+    
+
+############################################################# News Class #########################################################################################################
+class News(db.Model):
+    headline = db.Column(db.String(100), primary_key=True)
+    postedDate = db.Column(db.String(30))
+    articleBody = db.Column(db.String)
+
+    def __init__(self, title, date, body):
+        self.headline = title
+        self.postedDate = date
+        self.articleBody = body
+
+# News schema
+class NewsSchema(marsh.Schema):
+    class Meta:
+        fields = ('headline', 'postedDate', 'articleBody')
+
+# Init the Schema
+news_schema = NewsSchema()
+multiple_news_schema = NewsSchema(many=True)
+
+# Adding a news item
+@app.route('/news', methods=['POST'])
+def addNewsItem():
+    headline = request.json['headline']
+    postedDate = request.json['postedDate']
+    articleBody = request.json['articleBody']
+
+    newNewsItem = News(headline, postedDate, articleBody)
+    db.session.add(newNewsItem)
+    db.session.commit()
+    return news_schema.jsonify(newNewsItem)
+
+# getting a news item
+@app.route('/news/<headline>', methods=['GET'])
+def getNewsItem(headline):
+    newsItem = News.query.get(headline)
+    return news_schema.jsonify(newsItem)
+
+# deleting a News item
+@app.route('/news/<headline>', methods=['DELETE'])
+def deleteNewsItem(headline):
+    newsItem = News.query.get(headline)
+    db.session.delete(newsItem)
+    db.session.commit()
+    return news_schema.jsonify(newsItem)
 
 
 
