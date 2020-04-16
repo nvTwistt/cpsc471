@@ -587,6 +587,7 @@ class Advisor(db.Model):
     qualifications = db.relationship('Advisor_Qualification', backref='advisor', lazy=True)
     investmentOptions = db.relationship('Investment_Option', backref='advisor', lazy=True)
     clients = db.relationship('Investor', backref='advisor', lazy=True)
+    surveys = db.relationship('Survey', backref='advisor', lazy=True)
 
     def __init__(self, name, accountId):
         self.name = name
@@ -634,6 +635,14 @@ def addAdvisor():
 def getAdvisor(advisorId):
   advisor = Advisor.query.get(advisorId)
   return advisor_schema.jsonify(advisor)
+
+#get qualifications of an advisor
+#GET /advisor/{AdvisorID}
+@app.route('/advisor/<advisorId>/qualifications', methods = ['GET'])
+def getAdvisorQualifications(advisorId):
+  quals = Advisor_Qualification.query.filter_by(advisorId = advisorId).all()
+  res = advisor_qualifications_schema.jsonify(quals)
+  return jsonify(qualifications=res.get_json())
 
 #get all advisors
 @app.route('/advisor', methods = ['GET'])
@@ -691,8 +700,8 @@ class Advisor_QualificationSchema(marsh.Schema):
         class Meta:
             fields = ('advisorId', 'qualification')
 
-Advisor_Qualification_schema = Advisor_QualificationSchema()
-Advisor_Qualifications_schema = Advisor_QualificationSchema(many=True)
+advisor_qualification_schema = Advisor_QualificationSchema()
+advisor_qualifications_schema = Advisor_QualificationSchema(many=True)
 
   
 
