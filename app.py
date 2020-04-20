@@ -245,12 +245,12 @@ def updateCompany(companyName):
 
     companyName = request.json['companyName']
     industry = request.json['industry']
-    sharesOustanding = request.json['sharesOutstanding']
+    sharesOutstanding = request.json['sharesOutstanding']
     marketCap = request.json['marketCap']
 
     company.companyName = companyName
     company.industry = industry
-    company.sharesOustanding = sharesOustanding
+    company.sharesOutstanding = sharesOutstanding
     company.marketCap = marketCap
 
     db.session.commit()
