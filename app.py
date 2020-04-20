@@ -271,6 +271,8 @@ class Stock(db.Model):
     targetPrice = db.Column(db.Float(2))
     companyName = db.Column(db.String(50), db.ForeignKey('company.companyName'))
 
+    portfolios = db.relationship('Consists_Of', backref='stock', lazy=True)
+
     def __init__(self, tick, cPrice, tPrice, name):
         self.ticker = tick
         self.currentPrice = cPrice
@@ -417,6 +419,8 @@ class Portfolio(db.Model):
     canadianEquities = db.relationship('Portfolio_Canadian_Equity', backref='portfolio', lazy=True)
     usEquities = db.relationship('Portfolio_US_Equity', backref='portfolio', lazy=True)
 
+    stocks = db.relationship('Consists_Of', backref='portfolio', lazy=True)
+
     def __init__(self, investorId):
         self.investorId = investorId
 
@@ -486,7 +490,24 @@ def deletePortfolio(portfolioId):
   portfolio = Portfolio.query.get(portfolioId)
   db.session.delete(portfolio)
   db.session.commit()
-  return portfolio_schema.jsonify(portfolio)  
+  return portfolio_schema.jsonify(portfolio)
+
+@app.route('/portfolio/stock', methods = ['POST'])
+def addStockToPortfolio():
+    portfolioId = request.json['portfolioId']
+    stockTicker = request.json['ticker']
+    amount = request.json['amount']
+
+    consists_of = Consists_Of(portfolioId, stockTicker, amount)
+    db.session.add(consists_of)
+    db.session.commit()
+    return consists_ofschema.jsonify(consists_of)
+
+@app.route('/portfolio/stock/<portfolioId>', methods = ['GET'])
+def getStocks(portfolioId):
+    allStocks = Consists_Of.query.filter_by(portfolioId = portfolioId)
+    result = consists_ofMschema.jsonify(allStocks)
+    return jsonify(stocks=result.get_json())
 
 ############################################################# Portfolio Bond Class ####################################################################################################
 
@@ -552,6 +573,29 @@ class Portfolio_US_EquitySchema(marsh.Schema):
 portfolio_US_Equity_schema = Portfolio_US_EquitySchema()
 portfolios_US_Equity_schema = Portfolio_US_EquitySchema(many=True)
 
+############################################################# Portfolio-Stock Consists of Class ####################################################################################################
+
+class Consists_Of(db.Model):
+
+    portfolioId = db.Column(db.Integer, db.ForeignKey('portfolio.portfolioId'), primary_key=True)
+    stockTicker = db.Column(db.String(8), db.ForeignKey('stock.ticker'), primary_key=True)
+    numberOfStocks = db.Column(db.Integer)
+
+    def __init__(self, portfolioId, stockTicker, numberOfStocks):
+        self.portfolioId = portfolioId
+        self.stockTicker = stockTicker
+        self.numberOfStocks = numberOfStocks
+
+
+# Portfolio Schema
+class Consists_OfSchema(marsh.Schema):
+        class Meta:
+            fields = ('portfolioId', 'stockTicker', 'numberOfStocks')
+
+
+# Init the Schema
+consists_ofschema = Consists_OfSchema()
+consists_ofMschema = Consists_OfSchema(many=True)
 
 ############################################################# Investment Class ####################################################################################################
 class Investment(db.Model):
